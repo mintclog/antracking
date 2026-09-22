@@ -3,6 +3,16 @@ export interface Point {
   y: number
 }
 
+export type RoiMode = 'aruco' | 'manual'
+
+export type ArucoStatus = 'idle' | 'searching' | 'partial' | 'locked' | 'error'
+
+export interface ArucoMarker {
+  id: number
+  corners: Point[]
+  center: Point
+}
+
 export interface BoundingBox {
   x: number
   y: number

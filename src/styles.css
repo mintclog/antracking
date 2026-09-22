@@ -142,3 +142,11 @@ footer { padding: 16px 2px 0; color: #465963; font: 500 9px "IBM Plex Mono", mon
   .app-shell { width: calc(100% - 28px); }
   .workspace { grid-template-columns: minmax(0, 1fr) 320px; }
 }
+.mode-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+.mode-toggle button { color: #718590; background: #071018; }
+.mode-toggle button.active { color: #041012; background: var(--cyan); border-color: var(--cyan); }
+.aruco-guide { margin-top: 0; }
+.aruco-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; padding: 9px 10px; border: 1px solid #172630; border-radius: 4px; background: #071018; }
+.aruco-status-row span { color: var(--yellow); font: 600 10px "IBM Plex Mono", monospace; }
+.aruco-status-row span.ready { color: var(--cyan); }
+.aruco-status-row strong { color: #8296a1; font: 500 9px "IBM Plex Mono", monospace; }

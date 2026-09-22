@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type {
+  ArucoMarker,
   Calibration,
   Detection,
   DetectorFrame,
@@ -14,6 +15,9 @@ import { ROI_LABELS } from '../tracking/roi'
 interface TrackingCanvasProps {
   videoRef: React.RefObject<HTMLVideoElement | null>
   detectorWorker: Worker | null
+  arucoWorker: Worker | null
+  arucoEnabled: boolean
+  arucoMarkers: ArucoMarker[]
   cameraReady: boolean
   roiPoints: Point[]
   isSelectingRoi: boolean
@@ -25,6 +29,7 @@ interface TrackingCanvasProps {
   onRoiPoint: (point: Point) => void
   onDetections: (detections: Detection[], nowMs: number) => void
   onDetectionCount: (count: number) => void
+  onArucoMarkers: (markers: ArucoMarker[]) => void
   onFpsChange: (fps: number) => void
   onProcessingError: (message: string) => void
 }
@@ -35,6 +40,13 @@ interface DetectorWorkerMessage {
   timestampMs?: number
   detections?: Detection[]
   mask?: DetectorFrame
+  message?: string
+}
+
+interface ArucoWorkerMessage {
+  type: 'ready' | 'result' | 'error'
+  requestId?: number
+  markers?: ArucoMarker[]
   message?: string
 }
 
@@ -85,6 +97,27 @@ function drawDetections(context: CanvasRenderingContext2D, detections: Detection
   context.restore()
 }
 
+function drawArucoMarkers(context: CanvasRenderingContext2D, markers: ArucoMarker[]): void {
+  context.save()
+  context.lineWidth = 3
+  context.strokeStyle = '#ff73d1'
+  context.fillStyle = '#ff73d1'
+  context.font = '700 13px Inter, sans-serif'
+
+  markers.forEach((marker) => {
+    context.beginPath()
+    context.moveTo(marker.corners[0].x, marker.corners[0].y)
+    marker.corners.slice(1).forEach((corner) => context.lineTo(corner.x, corner.y))
+    context.closePath()
+    context.stroke()
+    context.beginPath()
+    context.arc(marker.center.x, marker.center.y, 4, 0, Math.PI * 2)
+    context.fill()
+    context.fillText(`ID ${marker.id}`, marker.center.x + 8, marker.center.y - 8)
+  })
+  context.restore()
+}
+
 function drawTracks(
   context: CanvasRenderingContext2D,
   tracks: TrackSnapshot[],
@@ -130,6 +163,9 @@ function drawTracks(
 export function TrackingCanvas({
   videoRef,
   detectorWorker,
+  arucoWorker,
+  arucoEnabled,
+  arucoMarkers,
   cameraReady,
   roiPoints,
   isSelectingRoi,
@@ -141,19 +177,26 @@ export function TrackingCanvas({
   onRoiPoint,
   onDetections,
   onDetectionCount,
+  onArucoMarkers,
   onFpsChange,
   onProcessingError,
 }: TrackingCanvasProps) {
   const displayCanvasRef = useRef<HTMLCanvasElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const analysisCanvasRef = useRef<HTMLCanvasElement>(null)
+  const arucoCanvasRef = useRef<HTMLCanvasElement>(null)
   const binaryMaskCanvasRef = useRef<HTMLCanvasElement>(null)
   const latestDetectionsRef = useRef<Detection[]>([])
   const processingRef = useRef(false)
+  const arucoProcessingRef = useRef(false)
   const requestIdRef = useRef(0)
+  const arucoRequestIdRef = useRef(0)
   const latestRef = useRef({
     videoRef,
     detectorWorker,
+    arucoWorker,
+    arucoEnabled,
+    arucoMarkers,
     cameraReady,
     roiPoints,
     isSelectingRoi,
@@ -165,6 +208,7 @@ export function TrackingCanvas({
     onRoiPoint,
     onDetections,
     onDetectionCount,
+    onArucoMarkers,
     onFpsChange,
     onProcessingError,
   })
@@ -173,6 +217,9 @@ export function TrackingCanvas({
     latestRef.current = {
       videoRef,
       detectorWorker,
+      arucoWorker,
+      arucoEnabled,
+      arucoMarkers,
       cameraReady,
       roiPoints,
       isSelectingRoi,
@@ -184,12 +231,16 @@ export function TrackingCanvas({
       onRoiPoint,
       onDetections,
       onDetectionCount,
+      onArucoMarkers,
       onFpsChange,
       onProcessingError,
     }
   }, [
     videoRef,
     detectorWorker,
+    arucoWorker,
+    arucoEnabled,
+    arucoMarkers,
     cameraReady,
     roiPoints,
     isSelectingRoi,
@@ -201,6 +252,7 @@ export function TrackingCanvas({
     onRoiPoint,
     onDetections,
     onDetectionCount,
+    onArucoMarkers,
     onFpsChange,
     onProcessingError,
   ])
@@ -238,8 +290,28 @@ export function TrackingCanvas({
   }, [detectorWorker])
 
   useEffect(() => {
+    arucoProcessingRef.current = false
+    if (!arucoWorker) return
+
+    const handleMessage = (event: MessageEvent<ArucoWorkerMessage>) => {
+      if (event.data.type === 'result' && event.data.requestId === arucoRequestIdRef.current) {
+        arucoProcessingRef.current = false
+        latestRef.current.onArucoMarkers(event.data.markers ?? [])
+      } else if (event.data.type === 'error' && event.data.requestId !== undefined) {
+        arucoProcessingRef.current = false
+        latestRef.current.onProcessingError(
+          event.data.message ?? 'ArUco Marker 분석 중 오류가 발생했습니다.',
+        )
+      }
+    }
+    arucoWorker.addEventListener('message', handleMessage)
+    return () => arucoWorker.removeEventListener('message', handleMessage)
+  }, [arucoWorker])
+
+  useEffect(() => {
     let animationFrame = 0
     let lastAnalysisAt = 0
+    let lastArucoAnalysisAt = 0
     let lastFpsReportAt = performance.now()
     let renderedFrames = 0
 
@@ -247,8 +319,10 @@ export function TrackingCanvas({
       const current = latestRef.current
       const video = current.videoRef.current
       const detectorWorker = current.detectorWorker
+      const arucoWorker = current.arucoWorker
       const displayCanvas = displayCanvasRef.current
       const analysisCanvas = analysisCanvasRef.current
+      const arucoCanvas = arucoCanvasRef.current
       const stage = stageRef.current
 
       if (video && displayCanvas && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -262,6 +336,9 @@ export function TrackingCanvas({
         const displayContext = displayCanvas.getContext('2d')
         if (displayContext) {
           displayContext.drawImage(video, 0, 0, displayCanvas.width, displayCanvas.height)
+          if (current.arucoEnabled && current.arucoMarkers.length > 0) {
+            drawArucoMarkers(displayContext, current.arucoMarkers)
+          }
           if (current.displaySettings.showRoi) {
             drawRoiOverlay(displayContext, current.roiPoints, current.isSelectingRoi)
           }
@@ -324,6 +401,48 @@ export function TrackingCanvas({
             )
           }
         }
+
+        const canDetectAruco =
+          current.cameraReady &&
+          current.arucoEnabled &&
+          arucoWorker &&
+          arucoCanvas &&
+          !arucoProcessingRef.current &&
+          now - lastArucoAnalysisAt >= 400
+
+        if (canDetectAruco && arucoWorker && arucoCanvas) {
+          arucoProcessingRef.current = true
+          lastArucoAnalysisAt = now
+          try {
+            const arucoWidth = Math.min(640, video.videoWidth)
+            const arucoHeight = Math.round((video.videoHeight / video.videoWidth) * arucoWidth)
+            if (arucoCanvas.width !== arucoWidth || arucoCanvas.height !== arucoHeight) {
+              arucoCanvas.width = arucoWidth
+              arucoCanvas.height = arucoHeight
+            }
+            const arucoContext = arucoCanvas.getContext('2d', { willReadFrequently: true })
+            if (!arucoContext) throw new Error('ArUco 분석 Canvas를 초기화하지 못했습니다.')
+            arucoContext.drawImage(video, 0, 0, arucoWidth, arucoHeight)
+            const frame = arucoContext.getImageData(0, 0, arucoWidth, arucoHeight)
+            arucoRequestIdRef.current += 1
+            arucoWorker.postMessage({
+              type: 'detect',
+              requestId: arucoRequestIdRef.current,
+              frame: {
+                width: frame.width,
+                height: frame.height,
+                data: frame.data,
+              },
+              sourceWidth: video.videoWidth,
+              sourceHeight: video.videoHeight,
+            }, [frame.data.buffer as ArrayBuffer])
+          } catch (error) {
+            arucoProcessingRef.current = false
+            current.onProcessingError(
+              error instanceof Error ? error.message : 'ArUco Marker 분석 중 오류가 발생했습니다.',
+            )
+          }
+        }
       }
 
       if (now - lastFpsReportAt >= 1000) {
@@ -365,6 +484,7 @@ export function TrackingCanvas({
         {isSelectingRoi && <div className="selection-banner">노란 스티커 중심을 순서대로 클릭하세요</div>}
       </div>
       <canvas ref={analysisCanvasRef} className="hidden-canvas" />
+      <canvas ref={arucoCanvasRef} className="hidden-canvas" />
       <div className={`mask-preview ${displaySettings.showMask ? '' : 'hidden'}`}>
         <div><span>Binary Mask</span><small>흰색 영역이 개미 후보입니다</small></div>
         <canvas ref={binaryMaskCanvasRef} />
