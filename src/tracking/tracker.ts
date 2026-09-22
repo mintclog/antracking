@@ -12,6 +12,7 @@ import { distanceInCentimeters, pointToCentimeters } from './measurements'
 interface InternalTrack {
   id: number
   position: Point
+  lastArea: number
   path: Point[]
   totalDistanceCm: number
   firstSeenSec: number
@@ -21,23 +22,41 @@ interface InternalTrack {
   archived: boolean
 }
 
+interface PendingCandidate {
+  id: number
+  position: Point
+  firstPosition: Point
+  lastArea: number
+  consecutiveFrames: number
+  maximumMovementPx: number
+}
+
 interface MatchCandidate {
   trackId: number
   detectionIndex: number
   distancePx: number
 }
 
+function areaChangeRatio(previousArea: number, nextArea: number): number {
+  const smallerArea = Math.min(previousArea, nextArea)
+  return smallerArea > 0 ? Math.max(previousArea, nextArea) / smallerArea : Number.POSITIVE_INFINITY
+}
+
 export class CentroidTracker {
   private activeTracks = new Map<number, InternalTrack>()
   private archivedTracks = new Map<number, InternalTrack>()
+  private pendingCandidates = new Map<number, PendingCandidate>()
   private records: TrackingRecord[] = []
   private nextId = 1
+  private nextCandidateId = 1
 
   reset(): void {
     this.activeTracks.clear()
     this.archivedTracks.clear()
+    this.pendingCandidates.clear()
     this.records = []
     this.nextId = 1
+    this.nextCandidateId = 1
   }
 
   update(
@@ -50,9 +69,14 @@ export class CentroidTracker {
     this.activeTracks.forEach((track) => {
       detections.forEach((detection, detectionIndex) => {
         const distancePx = distance(track.position, detection)
-        if (distancePx <= settings.maxMatchDistancePx) {
-          candidates.push({ trackId: track.id, detectionIndex, distancePx })
-        }
+        const elapsedSec = Math.max(timestampSec - track.lastSeenSec, 0.001)
+        const speedCmPerSec =
+          distanceInCentimeters(track.position, detection, calibration) / elapsedSec
+        const hasStableArea =
+          areaChangeRatio(track.lastArea, detection.area) <= settings.maxAreaChangeRatio
+        if (distancePx > settings.maxMatchDistancePx || !hasStableArea) return
+        if (speedCmPerSec > settings.maxSpeedCmPerSec) return
+        candidates.push({ trackId: track.id, detectionIndex, distancePx })
       })
     })
     candidates.sort((a, b) => a.distancePx - b.distancePx)
@@ -84,10 +108,86 @@ export class CentroidTracker {
       }
     })
 
-    detections.forEach((detection, detectionIndex) => {
-      if (!matchedDetectionIndexes.has(detectionIndex)) {
-        this.createTrack(detection, timestampSec, calibration)
+    this.updatePendingCandidates(detections, matchedDetectionIndexes, timestampSec, calibration, settings)
+  }
+
+  private updatePendingCandidates(
+    detections: Detection[],
+    matchedDetectionIndexes: Set<number>,
+    timestampSec: number,
+    calibration: Calibration,
+    settings: TrackerSettings,
+  ): void {
+    const candidates: MatchCandidate[] = []
+    this.pendingCandidates.forEach((candidate) => {
+      detections.forEach((detection, detectionIndex) => {
+        if (matchedDetectionIndexes.has(detectionIndex)) return
+        const distancePx = distance(candidate.position, detection)
+        const hasStableArea =
+          areaChangeRatio(candidate.lastArea, detection.area) <= settings.maxAreaChangeRatio
+        if (distancePx <= settings.confirmationMaxDistancePx && hasStableArea) {
+          candidates.push({ trackId: candidate.id, detectionIndex, distancePx })
+        }
+      })
+    })
+    candidates.sort((a, b) => a.distancePx - b.distancePx)
+
+    const matchedCandidateIds = new Set<number>()
+    candidates.forEach((match) => {
+      if (
+        matchedCandidateIds.has(match.trackId) ||
+        matchedDetectionIndexes.has(match.detectionIndex)
+      ) {
+        return
       }
+      const candidate = this.pendingCandidates.get(match.trackId)
+      const detection = detections[match.detectionIndex]
+      if (!candidate || !detection) return
+
+      candidate.position = { x: detection.x, y: detection.y }
+      candidate.lastArea = detection.area
+      candidate.consecutiveFrames += 1
+      candidate.maximumMovementPx = Math.max(
+        candidate.maximumMovementPx,
+        distance(candidate.firstPosition, detection),
+      )
+      matchedCandidateIds.add(candidate.id)
+      matchedDetectionIndexes.add(match.detectionIndex)
+
+      const enoughFrames =
+        candidate.consecutiveFrames >= settings.minimumConfirmationFrames
+      const enoughMovement =
+        candidate.maximumMovementPx >= settings.minimumConfirmationMovementPx
+      if (enoughFrames && enoughMovement) {
+        this.createTrack(detection, timestampSec, calibration)
+        this.pendingCandidates.delete(candidate.id)
+      }
+    })
+
+    this.pendingCandidates.forEach((_candidate, id) => {
+      if (!matchedCandidateIds.has(id)) this.pendingCandidates.delete(id)
+    })
+
+    detections.forEach((detection, detectionIndex) => {
+      if (matchedDetectionIndexes.has(detectionIndex)) return
+      if (
+        settings.minimumConfirmationFrames <= 1 &&
+        settings.minimumConfirmationMovementPx <= 0
+      ) {
+        this.createTrack(detection, timestampSec, calibration)
+        return
+      }
+
+      const position = { x: detection.x, y: detection.y }
+      this.pendingCandidates.set(this.nextCandidateId, {
+        id: this.nextCandidateId,
+        position,
+        firstPosition: position,
+        lastArea: detection.area,
+        consecutiveFrames: 1,
+        maximumMovementPx: 0,
+      })
+      this.nextCandidateId += 1
     })
   }
 
@@ -102,6 +202,7 @@ export class CentroidTracker {
     this.activeTracks.set(id, {
       id,
       position,
+      lastArea: detection.area,
       path: [position],
       totalDistanceCm: 0,
       firstSeenSec: timestampSec,
@@ -128,6 +229,7 @@ export class CentroidTracker {
     const speed = countedDistance / elapsedSinceLastDetection
 
     track.position = position
+    track.lastArea = detection.area
     track.path.push(position)
     if (track.path.length > settings.trailLength) track.path.shift()
     track.totalDistanceCm += countedDistance

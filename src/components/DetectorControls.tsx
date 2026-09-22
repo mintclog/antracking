@@ -54,9 +54,18 @@ export function DetectorControls({
           <RangeField label="Blur" value={detector.blurSize} min={1} max={15} step={2} onChange={(blurSize) => onDetectorChange({ blurSize })} />
           <RangeField label="Morphology" value={detector.morphologySize} min={1} max={11} step={2} onChange={(morphologySize) => onDetectorChange({ morphologySize })} />
           <RangeField label="최대 종횡비" value={detector.maxAspectRatio} min={1} max={8} step={0.5} onChange={(maxAspectRatio) => onDetectorChange({ maxAspectRatio })} />
+          <RangeField label="최소 Solidity" value={detector.minSolidity} min={0} max={1} step={0.05} onChange={(minSolidity) => onDetectorChange({ minSolidity })} />
+          <RangeField label="최대 원형도" value={detector.maxCircularity} min={0.1} max={1} step={0.05} onChange={(maxCircularity) => onDetectorChange({ maxCircularity })} />
+          <RangeField label="최소 채움 비율" value={detector.minFillRatio} min={0} max={1} step={0.05} onChange={(minFillRatio) => onDetectorChange({ minFillRatio })} />
+          <RangeField label="최대 채움 비율" value={detector.maxFillRatio} min={0.1} max={1} step={0.05} onChange={(maxFillRatio) => onDetectorChange({ maxFillRatio })} />
           <RangeField label="분석 FPS" value={detector.analysisFps} min={1} max={30} onChange={(analysisFps) => onDetectorChange({ analysisFps })} />
           <RangeField label="분석 너비" value={detector.analysisWidth} min={320} max={960} step={160} unit="px" onChange={(analysisWidth) => onDetectorChange({ analysisWidth })} />
+          <RangeField label="개미 확정 프레임" value={tracker.minimumConfirmationFrames} min={1} max={15} onChange={(minimumConfirmationFrames) => onTrackerChange({ minimumConfirmationFrames })} />
+          <RangeField label="확정 중 최대 이동" value={tracker.confirmationMaxDistancePx} min={3} max={100} unit="px" onChange={(confirmationMaxDistancePx) => onTrackerChange({ confirmationMaxDistancePx })} />
+          <RangeField label="확정 최소 변위" value={tracker.minimumConfirmationMovementPx} min={0} max={20} step={0.5} unit="px" onChange={(minimumConfirmationMovementPx) => onTrackerChange({ minimumConfirmationMovementPx })} />
           <RangeField label="ID 최대 이동" value={tracker.maxMatchDistancePx} min={5} max={150} unit="px" onChange={(maxMatchDistancePx) => onTrackerChange({ maxMatchDistancePx })} />
+          <RangeField label="최대 면적 변화" value={tracker.maxAreaChangeRatio} min={1} max={5} step={0.1} unit="×" onChange={(maxAreaChangeRatio) => onTrackerChange({ maxAreaChangeRatio })} />
+          <RangeField label="최대 순간 속도" value={tracker.maxSpeedCmPerSec} min={0.5} max={30} step={0.5} unit="cm/s" onChange={(maxSpeedCmPerSec) => onTrackerChange({ maxSpeedCmPerSec })} />
           <RangeField label="ID 유지 프레임" value={tracker.maxMissingFrames} min={0} max={60} onChange={(maxMissingFrames) => onTrackerChange({ maxMissingFrames })} />
           <RangeField label="정지 판정 거리" value={tracker.stationaryDistanceCm} min={0} max={0.5} step={0.01} unit="cm" onChange={(stationaryDistanceCm) => onTrackerChange({ stationaryDistanceCm })} />
         </div>

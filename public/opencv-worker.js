@@ -121,22 +121,39 @@ function detectAnts(message) {
     const areaScale = scaleX * scaleY
     for (let index = 0; index < contours.size(); index += 1) {
       const contour = contours.get(index)
+      let hull
       try {
-        const area = cv.contourArea(contour, false) / areaScale
+        const areaInAnalysis = cv.contourArea(contour, false)
+        const area = areaInAnalysis / areaScale
         if (area < settings.minArea || area > settings.maxArea) continue
+        const perimeter = cv.arcLength(contour, true)
+        if (perimeter <= 0) continue
+        const circularity = (4 * Math.PI * areaInAnalysis) / (perimeter * perimeter)
+        if (circularity > settings.maxCircularity) continue
 
         const rectangle = cv.boundingRect(contour)
+        const fillRatio = areaInAnalysis / Math.max(rectangle.width * rectangle.height, 1)
+        if (fillRatio < settings.minFillRatio || fillRatio > settings.maxFillRatio) continue
+
         const width = rectangle.width / scaleX
         const height = rectangle.height / scaleY
         if (width < settings.minWidth || height < settings.minHeight) continue
         if (Math.max(width / height, height / width) > settings.maxAspectRatio) continue
 
+        hull = new cv.Mat()
+        cv.convexHull(contour, hull, false, true)
+        const hullArea = cv.contourArea(hull, false)
+        const solidity = hullArea > 0 ? areaInAnalysis / hullArea : 0
+        if (solidity < settings.minSolidity) continue
         const moments = cv.moments(contour, false)
         if (moments.m00 === 0) continue
         detections.push({
           x: moments.m10 / moments.m00 / scaleX,
           y: moments.m01 / moments.m00 / scaleY,
           area,
+          circularity,
+          solidity,
+          fillRatio,
           boundingBox: {
             x: rectangle.x / scaleX,
             y: rectangle.y / scaleY,
@@ -145,6 +162,7 @@ function detectAnts(message) {
           },
         })
       } finally {
+        hull?.delete?.()
         contour.delete()
       }
     }

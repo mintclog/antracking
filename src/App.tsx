@@ -30,6 +30,10 @@ const DEFAULT_DETECTOR_SETTINGS: DetectorSettings = {
   minWidth: 2,
   minHeight: 2,
   maxAspectRatio: 6,
+  minSolidity: 0.35,
+  maxCircularity: 0.92,
+  minFillRatio: 0.15,
+  maxFillRatio: 0.92,
   blurSize: 3,
   morphologySize: 3,
   analysisWidth: 640,
@@ -37,8 +41,13 @@ const DEFAULT_DETECTOR_SETTINGS: DetectorSettings = {
 }
 
 const DEFAULT_TRACKER_SETTINGS: TrackerSettings = {
+  minimumConfirmationFrames: 5,
+  confirmationMaxDistancePx: 28,
+  minimumConfirmationMovementPx: 1.5,
   maxMatchDistancePx: 65,
+  maxAreaChangeRatio: 2.5,
   maxMissingFrames: 12,
+  maxSpeedCmPerSec: 8,
   stationaryDistanceCm: 0.05,
   trailLength: 300,
 }
@@ -261,7 +270,7 @@ function App() {
       </main>
 
       <TrackingStats tracks={tracking.allTracks} elapsedSec={tracking.elapsedSec} detectedCount={detectedCount} />
-      <footer>ANT TRACKER v0.1 · Browser-only centroid tracking</footer>
+      <footer>ANT TRACKER v0.1.1 · Temporally confirmed centroid tracking</footer>
     </div>
   )
 }

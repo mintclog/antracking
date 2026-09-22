@@ -13,6 +13,9 @@ export interface BoundingBox {
 export interface Detection extends Point {
   area: number
   boundingBox: BoundingBox
+  circularity: number
+  solidity: number
+  fillRatio: number
 }
 
 export interface DetectorFrame {
@@ -32,6 +35,10 @@ export interface DetectorSettings {
   minWidth: number
   minHeight: number
   maxAspectRatio: number
+  minSolidity: number
+  maxCircularity: number
+  minFillRatio: number
+  maxFillRatio: number
   blurSize: number
   morphologySize: number
   analysisWidth: number
@@ -39,8 +46,13 @@ export interface DetectorSettings {
 }
 
 export interface TrackerSettings {
+  minimumConfirmationFrames: number
+  confirmationMaxDistancePx: number
+  minimumConfirmationMovementPx: number
   maxMatchDistancePx: number
+  maxAreaChangeRatio: number
   maxMissingFrames: number
+  maxSpeedCmPerSec: number
   stationaryDistanceCm: number
   trailLength: number
 }
