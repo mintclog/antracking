@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   ArucoMarker,
   Calibration,
@@ -9,6 +9,7 @@ import type {
   Point,
   TrackingStatus,
   TrackSnapshot,
+  TunnelSummary,
 } from '../types/tracking'
 import { ROI_LABELS } from '../tracking/roi'
 
@@ -40,6 +41,8 @@ interface DetectorWorkerMessage {
   timestampMs?: number
   detections?: Detection[]
   mask?: DetectorFrame
+  tunnelMask?: DetectorFrame
+  tunnels?: TunnelSummary
   message?: string
 }
 
@@ -186,6 +189,14 @@ export function TrackingCanvas({
   const analysisCanvasRef = useRef<HTMLCanvasElement>(null)
   const arucoCanvasRef = useRef<HTMLCanvasElement>(null)
   const binaryMaskCanvasRef = useRef<HTMLCanvasElement>(null)
+  const tunnelMaskCanvasRef = useRef<HTMLCanvasElement>(null)
+  const [tunnelResult, setTunnelResult] = useState<{
+    settings: DetectorSettings
+    roi: Point[]
+    summary: TunnelSummary
+  } | null>(null)
+  const analysisContextRef = useRef<{ settings: DetectorSettings; roi: Point[] } | null>(null)
+  const resultContextRef = useRef<{ settings: DetectorSettings; roi: Point[] } | null>(null)
   const latestDetectionsRef = useRef<Detection[]>([])
   const processingRef = useRef(false)
   const arucoProcessingRef = useRef(false)
@@ -265,6 +276,10 @@ export function TrackingCanvas({
     const handleMessage = (event: MessageEvent<DetectorWorkerMessage>) => {
       if (event.data.type === 'result' && event.data.requestId === requestIdRef.current) {
         processingRef.current = false
+        const requestContext = analysisContextRef.current
+        const current = latestRef.current
+        if (!requestContext || !current.cameraReady || requestContext.settings !== current.detectorSettings || requestContext.roi !== current.roiPoints) return
+        resultContextRef.current = requestContext
         const detections = event.data.detections ?? []
         latestDetectionsRef.current = detections
         latestRef.current.onDetectionCount(detections.length)
@@ -280,6 +295,18 @@ export function TrackingCanvas({
           maskPixels.set(mask.data)
           context?.putImageData(new ImageData(maskPixels, mask.width, mask.height), 0, 0)
         }
+        const tunnelMask = event.data.tunnelMask
+        const tunnelCanvas = tunnelMaskCanvasRef.current
+        if (tunnelMask && tunnelCanvas) {
+          tunnelCanvas.width = tunnelMask.width
+          tunnelCanvas.height = tunnelMask.height
+          tunnelCanvas.getContext('2d')?.putImageData(
+            new ImageData(new Uint8ClampedArray(tunnelMask.data), tunnelMask.width, tunnelMask.height), 0, 0,
+          )
+        }
+        setTunnelResult(event.data.tunnels ? {
+          settings: requestContext.settings, roi: requestContext.roi, summary: event.data.tunnels,
+        } : null)
       } else if (event.data.type === 'error' && event.data.requestId !== undefined) {
         processingRef.current = false
         latestRef.current.onProcessingError(event.data.message ?? '영상 분석 중 오류가 발생했습니다.')
@@ -336,15 +363,19 @@ export function TrackingCanvas({
         const displayContext = displayCanvas.getContext('2d')
         if (displayContext) {
           displayContext.drawImage(video, 0, 0, displayCanvas.width, displayCanvas.height)
+          const resultCurrent = current.cameraReady && resultContextRef.current?.settings === current.detectorSettings && resultContextRef.current?.roi === current.roiPoints
+          if (resultCurrent && current.detectorSettings.mode !== 'ants' && tunnelMaskCanvasRef.current) {
+            displayContext.drawImage(tunnelMaskCanvasRef.current, 0, 0, displayCanvas.width, displayCanvas.height)
+          }
           if (current.arucoEnabled && current.arucoMarkers.length > 0) {
             drawArucoMarkers(displayContext, current.arucoMarkers)
           }
           if (current.displaySettings.showRoi) {
             drawRoiOverlay(displayContext, current.roiPoints, current.isSelectingRoi)
           }
-          if (current.trackingStatus !== 'idle') {
+          if (current.detectorSettings.mode !== 'tunnels' && current.trackingStatus !== 'idle') {
             drawTracks(displayContext, current.tracks, current.displaySettings)
-          } else if (latestDetectionsRef.current.length > 0) {
+          } else if (resultCurrent && current.detectorSettings.mode !== 'tunnels' && latestDetectionsRef.current.length > 0) {
             drawDetections(displayContext, latestDetectionsRef.current)
           }
           renderedFrames += 1
@@ -379,6 +410,7 @@ export function TrackingCanvas({
             analysisContext.drawImage(video, 0, 0, analysisWidth, analysisHeight)
             const frame = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight)
             requestIdRef.current += 1
+            analysisContextRef.current = { settings: current.detectorSettings, roi: current.roiPoints }
             detectorWorker.postMessage({
               type: 'analyze',
               requestId: requestIdRef.current,
@@ -469,6 +501,9 @@ export function TrackingCanvas({
     })
   }
 
+  const tunnelSummary = cameraReady && tunnelResult?.settings === detectorSettings && tunnelResult.roi === roiPoints
+    ? tunnelResult.summary : null
+
   return (
     <div className="viewer-stack">
       <div ref={stageRef} className={`video-stage ${isSelectingRoi ? 'selecting' : ''}`}>
@@ -485,9 +520,18 @@ export function TrackingCanvas({
       </div>
       <canvas ref={analysisCanvasRef} className="hidden-canvas" />
       <canvas ref={arucoCanvasRef} className="hidden-canvas" />
-      <div className={`mask-preview ${displaySettings.showMask ? '' : 'hidden'}`}>
+      {detectorSettings.mode !== 'ants' && <div className="status-strip">
+        <span>굴 후보 {tunnelSummary?.regionCount ?? 0} 영역</span>
+        <span>ROI {((tunnelSummary?.roiFraction ?? 0) * 100).toFixed(1)}%</span>
+        <span>면적 ≈ {calibration ? ((tunnelSummary?.areaPixel ?? 0) * calibration.cmPerPixelX * calibration.cmPerPixelY).toFixed(2) : '—'} cm²</span>
+      </div>}
+      <div className={`mask-preview ${displaySettings.showMask && detectorSettings.mode !== 'tunnels' ? '' : 'hidden'}`}>
         <div><span>Binary Mask</span><small>흰색 영역이 개미 후보입니다</small></div>
         <canvas ref={binaryMaskCanvasRef} />
+      </div>
+      <div className={`mask-preview ${displaySettings.showMask && detectorSettings.mode !== 'ants' ? '' : 'hidden'}`}>
+        <div><span>Tunnel Mask</span><small>주황색 영역은 굴 후보입니다 (확정된 굴이 아닙니다)</small></div>
+        <canvas ref={tunnelMaskCanvasRef} />
       </div>
     </div>
   )

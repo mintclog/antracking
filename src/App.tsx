@@ -29,6 +29,10 @@ import type {
 import { downloadTrackingCsv } from './utils/csv'
 
 const DEFAULT_DETECTOR_SETTINGS: DetectorSettings = {
+  mode: 'both',
+  tunnelBrightnessMin: 160,
+  tunnelSaturationMax: 110,
+  tunnelMinArea: 150,
   threshold: 95,
   hueMin: 0,
   hueMax: 179,
@@ -52,7 +56,7 @@ const DEFAULT_DETECTOR_SETTINGS: DetectorSettings = {
 const DEFAULT_TRACKER_SETTINGS: TrackerSettings = {
   minimumConfirmationFrames: 5,
   confirmationMaxDistancePx: 28,
-  minimumConfirmationMovementPx: 1.5,
+  minimumConfirmationMovementPx: 0,
   maxMatchDistancePx: 65,
   maxAreaChangeRatio: 2.5,
   maxMissingFrames: 12,
@@ -358,7 +362,13 @@ function App() {
             detector={detectorSettings}
             tracker={trackerSettings}
             display={displaySettings}
-            onDetectorChange={(patch) => setDetectorSettings((current) => ({ ...current, ...patch }))}
+            onDetectorChange={(patch) => {
+              if (patch.mode && patch.mode !== detectorSettings.mode) {
+                if (tracking.status === 'running' || tracking.status === 'paused') tracking.end()
+                setDetectedCount(0)
+              }
+              setDetectorSettings((current) => ({ ...current, ...patch }))
+            }}
             onTrackerChange={(patch) => setTrackerSettings((current) => ({ ...current, ...patch }))}
             onDisplayChange={(patch) => setDisplaySettings((current) => ({ ...current, ...patch }))}
           />
@@ -366,7 +376,7 @@ function App() {
       </main>
 
       <TrackingStats tracks={tracking.allTracks} elapsedSec={tracking.elapsedSec} detectedCount={detectedCount} />
-      <footer>ANT TRACKER v0.1.1 · ArUco auto ROI + temporally confirmed tracking</footer>
+      <footer>ANT TRACKER v0.1.2 · Tunnel detection + stationary ant tracking</footer>
     </div>
   )
 }

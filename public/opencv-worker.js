@@ -25,9 +25,9 @@ function initializeOpenCv() {
     self.importScripts(OPENCV_URL)
 
     if (typeof self.cv?.then === 'function') {
-      self.cv
-        .then(setReady)
-        .catch((reason) => sendError(reason?.message ?? 'OpenCV.js 초기화에 실패했습니다.'))
+      // Some OpenCV builds expose a legacy thenable without Promise.catch().
+      const loading = self.cv.then(setReady)
+      loading?.catch?.((reason) => sendError(reason?.message ?? 'OpenCV.js 초기화에 실패했습니다.'))
     } else if (self.cv?.Mat) {
       setReady(self.cv)
     } else if (self.cv) {
@@ -41,6 +41,59 @@ function initializeOpenCv() {
 function oddKernelSize(value) {
   const integer = Math.max(1, Math.round(value))
   return integer % 2 === 0 ? integer + 1 : integer
+}
+
+function detectTunnels(hsv, roiMask, settings, scaleX, scaleY) {
+  const cv = cvInstance
+  const matrices = []
+  const keep = (matrix) => { matrices.push(matrix); return matrix }
+  try {
+    const low = keep(new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, settings.tunnelBrightnessMin, 0]))
+    const high = keep(new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [179, settings.tunnelSaturationMax, 255, 255]))
+    const binary = keep(new cv.Mat())
+    cv.inRange(hsv, low, high, binary)
+    cv.bitwise_and(binary, roiMask, binary)
+    const size = oddKernelSize(settings.morphologySize)
+    const kernel = keep(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(size, size)))
+    cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel)
+    cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, kernel)
+    cv.bitwise_and(binary, roiMask, binary)
+    const contours = keep(new cv.MatVector())
+    const hierarchy = keep(new cv.Mat())
+    cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    const accepted = keep(cv.Mat.zeros(hsv.rows, hsv.cols, cv.CV_8UC1))
+    let regionCount = 0
+    for (let index = 0; index < contours.size(); index += 1) {
+      const contour = contours.get(index)
+      try {
+        if (cv.contourArea(contour) / (scaleX * scaleY) < settings.tunnelMinArea) continue
+        cv.drawContours(accepted, contours, index, new cv.Scalar(255), -1)
+        regionCount += 1
+      } finally {
+        contour.delete()
+      }
+    }
+    // Preserve holes (ants and blue gel), even inside an accepted outer contour.
+    cv.bitwise_and(accepted, binary, accepted)
+    cv.bitwise_and(accepted, roiMask, accepted)
+    const pixels = cv.countNonZero(accepted)
+    const roiPixels = cv.countNonZero(roiMask)
+    const data = new Uint8ClampedArray(hsv.rows * hsv.cols * 4)
+    for (let index = 0; index < accepted.data.length; index += 1) {
+      if (!accepted.data[index]) continue
+      data.set([255, 155, 45, 100], index * 4)
+    }
+    return {
+      tunnelMask: { width: hsv.cols, height: hsv.rows, data },
+      tunnels: {
+        areaPixel: pixels / (scaleX * scaleY),
+        roiFraction: roiPixels > 0 ? pixels / roiPixels : 0,
+        regionCount,
+      },
+    }
+  } finally {
+    matrices.forEach((matrix) => matrix.delete())
+  }
 }
 
 function detectAnts(message) {
@@ -90,6 +143,11 @@ function detectAnts(message) {
     cv.GaussianBlur(rgb, blurred, new cv.Size(blurSize, blurSize), 0, 0, cv.BORDER_DEFAULT)
     cv.cvtColor(blurred, hsv, cv.COLOR_RGB2HSV)
 
+    const tunnelResult = settings.mode === 'ants'
+      ? {}
+      : detectTunnels(hsv, roiMask, settings, scaleX, scaleY)
+    if (settings.mode === 'tunnels') return { detections: [], ...tunnelResult }
+
     low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [
       settings.hueMin,
       settings.saturationMin,
@@ -112,6 +170,7 @@ function detectAnts(message) {
     )
     cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel)
     cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, kernel)
+    cv.bitwise_and(binary, roiMask, binary)
 
     contours = new cv.MatVector()
     hierarchy = new cv.Mat()
@@ -147,6 +206,7 @@ function detectAnts(message) {
         if (solidity < settings.minSolidity) continue
         const moments = cv.moments(contour, false)
         if (moments.m00 === 0) continue
+        if (cv.pointPolygonTest(roiContour, new cv.Point(moments.m10 / moments.m00, moments.m01 / moments.m00), false) < 0) continue
         detections.push({
           x: moments.m10 / moments.m00 / scaleX,
           y: moments.m01 / moments.m00 / scaleY,
@@ -177,7 +237,7 @@ function detectAnts(message) {
         data: new Uint8ClampedArray(maskRgba.data),
       }
     }
-    return { detections, mask }
+    return { detections, mask, ...tunnelResult }
   } finally {
     ;[
       rgba,
@@ -208,6 +268,7 @@ self.addEventListener('message', (event) => {
   try {
     const result = detectAnts(event.data)
     const transfer = result.mask ? [result.mask.data.buffer] : []
+    if (result.tunnelMask) transfer.push(result.tunnelMask.data.buffer)
     self.postMessage(
       {
         type: 'result',
@@ -215,6 +276,8 @@ self.addEventListener('message', (event) => {
         timestampMs: event.data.timestampMs,
         detections: result.detections,
         mask: result.mask,
+        tunnelMask: result.tunnelMask,
+        tunnels: result.tunnels,
       },
       transfer,
     )

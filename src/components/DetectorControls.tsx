@@ -39,6 +39,20 @@ export function DetectorControls({
   return (
     <section className="panel-section">
       <div className="section-heading"><div><span className="eyebrow">DETECTION</span><h2>검출 설정</h2></div></div>
+      <label>검출 대상
+        <select value={detector.mode} onChange={(event) => onDetectorChange({ mode: event.target.value as DetectorSettings['mode'] })}>
+          <option value="tunnels">굴</option>
+          <option value="ants">개미</option>
+          <option value="both">둘 다</option>
+        </select>
+      </label>
+      <p className="help-text">대상을 바꾸면 진행 중인 추적은 종료됩니다. 좌표 기록은 CSV로 저장할 수 있습니다.</p>
+      {detector.mode !== 'ants' && <>
+        <RangeField label="굴 최소 밝기" value={detector.tunnelBrightnessMin} min={0} max={255} onChange={(tunnelBrightnessMin) => onDetectorChange({ tunnelBrightnessMin })} />
+        <RangeField label="굴 최대 채도" value={detector.tunnelSaturationMax} min={0} max={255} onChange={(tunnelSaturationMax) => onDetectorChange({ tunnelSaturationMax })} />
+        <RangeField label="굴 최소 면적" value={detector.tunnelMinArea} min={0} max={5000} step={10} unit="px²" onChange={(tunnelMinArea) => onDetectorChange({ tunnelMinArea })} />
+        <p className="help-text">흰 배경 앞의 밝고 채도가 낮은 굴 후보를 주황색으로 표시합니다. 반사광·기포도 잡힐 수 있으므로 마스크를 보며 조정하세요.</p>
+      </>}
       <RangeField label="밝기 Threshold" value={detector.threshold} min={0} max={255} onChange={(threshold) => onDetectorChange({ threshold })} />
       <div className="two-column-fields compact">
         <label>최소 면적 (px²)<input type="number" min="1" value={detector.minArea} onChange={(event) => onDetectorChange({ minArea: Number(event.target.value) })} /></label>
@@ -63,6 +77,7 @@ export function DetectorControls({
           <RangeField label="개미 확정 프레임" value={tracker.minimumConfirmationFrames} min={1} max={15} onChange={(minimumConfirmationFrames) => onTrackerChange({ minimumConfirmationFrames })} />
           <RangeField label="확정 중 최대 이동" value={tracker.confirmationMaxDistancePx} min={3} max={100} unit="px" onChange={(confirmationMaxDistancePx) => onTrackerChange({ confirmationMaxDistancePx })} />
           <RangeField label="확정 최소 변위" value={tracker.minimumConfirmationMovementPx} min={0} max={20} step={0.5} unit="px" onChange={(minimumConfirmationMovementPx) => onTrackerChange({ minimumConfirmationMovementPx })} />
+          <p className="help-text">정지한 개미도 처음부터 ID를 받으려면 확정 최소 변위를 0으로 두세요. 정지한 먼지도 후보가 될 수 있습니다.</p>
           <RangeField label="ID 최대 이동" value={tracker.maxMatchDistancePx} min={5} max={150} unit="px" onChange={(maxMatchDistancePx) => onTrackerChange({ maxMatchDistancePx })} />
           <RangeField label="최대 면적 변화" value={tracker.maxAreaChangeRatio} min={1} max={5} step={0.1} unit="×" onChange={(maxAreaChangeRatio) => onTrackerChange({ maxAreaChangeRatio })} />
           <RangeField label="최대 순간 속도" value={tracker.maxSpeedCmPerSec} min={0.5} max={30} step={0.5} unit="cm/s" onChange={(maxSpeedCmPerSec) => onTrackerChange({ maxSpeedCmPerSec })} />

@@ -224,7 +224,7 @@ export class CentroidTracker {
     const position = { x: detection.x, y: detection.y }
     const elapsedSinceLastDetection = Math.max(timestampSec - track.lastSeenSec, 0.001)
     const measuredDistance = distanceInCentimeters(track.position, position, calibration)
-    const isMoving = measuredDistance >= settings.stationaryDistanceCm
+    const isMoving = measuredDistance > 0 && measuredDistance >= settings.stationaryDistanceCm
     const countedDistance = isMoving ? measuredDistance : 0
     const speed = countedDistance / elapsedSinceLastDetection
 

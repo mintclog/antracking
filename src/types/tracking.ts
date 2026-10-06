@@ -35,6 +35,10 @@ export interface DetectorFrame {
 }
 
 export interface DetectorSettings {
+  mode: 'ants' | 'tunnels' | 'both'
+  tunnelBrightnessMin: number
+  tunnelSaturationMax: number
+  tunnelMinArea: number
   threshold: number
   hueMin: number
   hueMax: number
@@ -53,6 +57,12 @@ export interface DetectorSettings {
   morphologySize: number
   analysisWidth: number
   analysisFps: number
+}
+
+export interface TunnelSummary {
+  areaPixel: number
+  roiFraction: number
+  regionCount: number
 }
 
 export interface TrackerSettings {
