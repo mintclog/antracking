@@ -46,6 +46,7 @@ export function openArucoMarkerSheet(): void {
     </style></head><body>
       <h1>ANT TRACKER · ARUCO Marker Set</h1>
       <p>인쇄 배율 100%로 출력하고 검은 테두리와 흰 여백을 자르지 마세요.</p>
+      <p>각 마커의 중심이 A·B·C·D 꼭짓점이 됩니다. 실제 크기는 마커 중심 사이를 기준으로 측정하세요.</p>
       <main>${markerCards}</main>
       <button onclick="window.print()">인쇄</button>
     </body></html>`)

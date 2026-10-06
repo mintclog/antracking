@@ -25,6 +25,24 @@ function loadTs(filename) {
 
 const { CentroidTracker } = loadTs('src/tracking/tracker.ts')
 const { createCalibration } = loadTs('src/tracking/measurements.ts')
+const { createRoiFromArucoMarkers } = loadTs('src/tracking/aruco.ts')
+const markerCenters = [{ x: 10, y: 10 }, { x: 110, y: 10 }, { x: 110, y: 90 }, { x: 10, y: 90 }]
+const markers = markerCenters.map((center, id) => ({
+  id, center,
+  corners: [
+    { x: center.x - 5, y: center.y - 5 }, { x: center.x + 5, y: center.y - 5 },
+    { x: center.x + 5, y: center.y + 5 }, { x: center.x - 5, y: center.y + 5 },
+  ],
+}))
+const centerRoi = createRoiFromArucoMarkers([markers[2], markers[0], markers[3], markers[1]])
+assert.deepEqual(centerRoi, markerCenters, 'ROI must use centers ordered by ID, not inner corners')
+assert.notEqual(centerRoi[0], markers[0].center, 'ROI points should not alias marker objects')
+assert.equal(createRoiFromArucoMarkers(markers.slice(0, 3)), null)
+assert.equal(createRoiFromArucoMarkers(markers.map((marker) => ({ ...marker, center: { x: 0, y: 0 } }))), null)
+const centerCalibration = createCalibration(centerRoi, 20, 16)
+assert.equal(centerCalibration.averageWidthPx, 100)
+assert.equal(centerCalibration.averageHeightPx, 80)
+console.log('PASS: ArUco center ROI, ID order, missing/degenerate markers, center-based calibration')
 const app = fs.readFileSync('src/App.tsx', 'utf8')
 function defaults(name) {
   const literal = app.match(new RegExp(`const ${name}: \\w+ = (\\{[\\s\\S]*?\\n\\})`))?.[1]

@@ -66,7 +66,7 @@ export function RoiControls({
       {mode === 'aruco' ? (
         <>
           <p className="hint aruco-guide">
-            ID 0·1·2·3을 좌상·우상·우하·좌하에 붙이면 사육장 쪽 안쪽 모서리로 영역을 자동 설정합니다.
+            ID 0·1·2·3을 좌상·우상·우하·좌하에 붙이면 각 마커의 중심을 연결해 영역을 자동 설정합니다.
           </p>
           <div className="aruco-status-row">
             <span className={arucoStatus === 'locked' ? 'ready' : ''}>{ARUCO_STATUS_LABELS[arucoStatus]}</span>

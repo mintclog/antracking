@@ -11,12 +11,6 @@ function polygonSignedArea(points: [Point, Point, Point, Point]): number {
   }, 0) / 2
 }
 
-function closestCorner(marker: ArucoMarker, target: Point): Point {
-  return marker.corners.reduce((closest, corner) =>
-    distance(corner, target) < distance(closest, target) ? corner : closest,
-  )
-}
-
 export function createRoiFromArucoMarkers(
   markers: ArucoMarker[],
 ): [Point, Point, Point, Point] | null {
@@ -25,11 +19,7 @@ export function createRoiFromArucoMarkers(
   if (ordered.some((marker) => !marker)) return null
 
   const completeMarkers = ordered as [ArucoMarker, ArucoMarker, ArucoMarker, ArucoMarker]
-  const enclosureCenter = completeMarkers.reduce(
-    (center, marker) => ({ x: center.x + marker.center.x / 4, y: center.y + marker.center.y / 4 }),
-    { x: 0, y: 0 },
-  )
-  const points = completeMarkers.map((marker) => closestCorner(marker, enclosureCenter)) as [
+  const points = completeMarkers.map((marker) => ({ ...marker.center })) as [
     Point,
     Point,
     Point,
